@@ -124,6 +124,7 @@ python codearts_login.py
 - **为什么必须回读验证？** `claim`/`confirm` 只代表受理，回读状态变成 CONFIRMED 才算真的到账。
 - **`AK|SK|STS` 简写能自动续期吗？** 不能，只有含 refresh_token + DPoP 私钥的 JSON 才能续期。
 - **JSON 能一行填多个吗？** 不行，JSON 必须每条独占一行；简写形式可以用 `&` 串接。
+- **多账号里只有一个报 STS5.1806 / APIG.0602？** 该账号的 refresh_token 已失效（续期轮换链断裂，或被旧的 `codearts_credentials.json` 缓存覆盖），续期失败后再用过期 STS 请求就会报 `security token has expired`。处理：重新运行 `codearts_login.py --note 账号名`，把输出的 JSON 替换 `CODEARTS_CREDENTIALS` 中该账号那一行，然后在 Actions 手动运行时勾选 `skip_cache` 跑一次（脚本会比较缓存与 Secrets 凭据的到期时间，新凭据不会被旧缓存覆盖）。
 
 ## 📁 目录结构
 

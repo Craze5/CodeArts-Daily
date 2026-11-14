@@ -342,6 +342,11 @@ def apply_store(credential):
     saved = load_store().get(identity_of(credential))
     if not isinstance(saved, dict):
         return False
+    saved_stamp = parse_expiration(saved.get("expiration"))
+    local_stamp = parse_expiration(credential.get("expiration"))
+    if saved_stamp is not None and local_stamp is not None and saved_stamp <= local_stamp:
+        log("   ℹ️ 缓存凭据不比 Secrets 中的新，忽略缓存，以 Secrets 凭据为准")
+        return False
     for key in ("access_key_id", "secret_access_key", "security_token", "expiration",
                 "refresh_token", "domain_id", "user_name", "code_verifier"):
         if saved.get(key):
@@ -361,20 +366,27 @@ def persist(credential):
     save_store(store)
 
 
-def expires_within(credential, seconds):
-    text = credential.get("expiration", "")
+def parse_expiration(text):
+    text = str(text or "").strip()
     if not text:
-        return True
+        return None
     for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S.%f%z",
                 "%Y-%m-%dT%H:%M:%S%z"):
         try:
             moment = datetime.strptime(text.replace("+00:00", "Z"), fmt)
             if moment.tzinfo is None:
                 moment = moment.replace(tzinfo=timezone.utc)
-            return moment.timestamp() - time.time() < seconds
+            return moment.timestamp()
         except ValueError:
             continue
-    return True
+    return None
+
+
+def expires_within(credential, seconds):
+    stamp = parse_expiration(credential.get("expiration"))
+    if stamp is None:
+        return True
+    return stamp - time.time() < seconds
 
 
 def b64url(raw):
@@ -469,6 +481,14 @@ def ensure_fresh(credential):
             return refresh_credential(credential)
         except Exception as error:
             log("   ⚠️ 自动续期失败: %s" % error)
+            expired = parse_expiration(credential.get("expiration")) is not None \
+                and expires_within(credential, 0)
+            if expired:
+                raise RuntimeError(
+                    "凭据已过期且自动续期失败（%s）。请重新运行 codearts_login.py --note %s 登录，"
+                    "把输出的 JSON 替换 CODEARTS_CREDENTIALS 中该账号那一行；"
+                    "若近期换过该账号凭据，请在 Actions 手动运行时勾选 skip_cache 跑一次，"
+                    "避免旧的 codearts_credentials.json 缓存覆盖新凭据" % (error, credential.get("note") or "账号"))
             return credential
     log("   ⚠️ 凭据已临近到期且未配置完整续期材料，直接尝试（失败请重新登录获取新凭据）")
     return credential
@@ -689,8 +709,8 @@ def main():
     for index, credential in enumerate(accounts, 1):
         if ONLY and index != ONLY:
             continue
-        apply_store(credential)
         log("👤 [%d] %s  AK=%s" % (index, credential["note"], mask(credential["access_key_id"])))
+        apply_store(credential)
         try:
             success, message, _ = do_checkin(credential)
             log("   %s %s" % ("✅" if success else "ℹ️", message))

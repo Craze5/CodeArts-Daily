@@ -7,6 +7,11 @@ on:
   # schedule:
   #   - cron: "23 20 * * *"
   workflow_dispatch:
+    inputs:
+      skip_cache:
+        description: "忽略凭据缓存，强制使用 Secrets 中的凭据（更换凭据后选 true 跑一次）"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,6 +31,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Restore credentials cache
+        if: ${{ inputs.skip_cache != true }}
         uses: actions/cache@v4
         with:
           path: codearts_credentials.json
